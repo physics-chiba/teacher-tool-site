@@ -189,7 +189,7 @@
 <div id="modal">
   <div class="box">
     <div class="hd">
-      <h3>この内容がAI（Anthropic社のAPI）に送信されます</h3>
+      <h3>この内容がClaudeに送信されます</h3>
       <p>氏名・電話番号・メールアドレス等は<mark style="background:#fff2c9;">黄色の伏字</mark>に自動置換しています。伏字にしきれていない個人情報がないか、必ずご確認ください。</p>
     </div>
     <div class="bd" id="modalBody"></div>
@@ -206,36 +206,35 @@
 <div class="wrap">
   <header class="top">
     <h1>学校ホームページ 文章作成・校正ツール</h1>
-    <p>公開前の原稿をチェックし、掲載にふさわしい文章に整えます。文章・写真はこのパソコンの中だけで処理されます（AI機能を使う場合のみ外部に送信されます）。</p>
+    <p>公開前の原稿をチェックし、掲載にふさわしい文章に整えます。文章・写真はこのパソコンの中だけで処理されます（AI機能を使う場合のみ、伏字化したうえでClaudeに送信されます）。</p>
   </header>
 
   <details class="settings" id="aiBox">
-    <summary>AI（Claude）連携の設定 <span class="pill off" id="aiPill">未設定・オフラインチェックのみ</span></summary>
+    <summary>AI（Claude）連携 <span class="pill off" id="aiPill">確認中…</span></summary>
     <div class="body">
+      <div id="aiStatus" style="font-size:13px; margin-bottom:12px;"></div>
       <div class="row fieldset">
-        <div style="flex:2;">
-          <label class="f" for="apikey">APIキー（sk-ant-… で始まる文字列）</label>
-          <input type="password" id="apikey" placeholder="未入力のままでもオフラインの校正チェックは使えます" autocomplete="off">
-        </div>
-        <div>
+        <div style="max-width:280px;">
           <label class="f" for="model">使用するモデル</label>
           <select id="model">
-            <option value="claude-sonnet-5" selected>Claude Sonnet 5（標準・おすすめ）</option>
-            <option value="claude-opus-5">Claude Opus 5（最も高精度）</option>
-            <option value="claude-haiku-4-5">Claude Haiku 4.5（高速・安価）</option>
+            <option value="sonnet" selected>Sonnet（標準・おすすめ）</option>
+            <option value="opus">Opus（最も高精度・時間がかかります）</option>
+            <option value="haiku">Haiku（高速）</option>
           </select>
         </div>
-      </div>
-      <div class="actions">
-        <button class="btn" id="aiTest">接続を確認する</button>
-        <span id="aiTestMsg" style="font-size:12.5px; color:var(--sub);"></span>
+        <div style="align-self:flex-end;">
+          <button class="btn" id="aiTest">接続を確認する</button>
+          <span id="aiTestMsg" style="font-size:12.5px; color:var(--sub); margin-left:8px;"></span>
+        </div>
       </div>
       <div class="note warn">
-        <b>AI機能を使うと、入力した文章がAnthropic社のAPIに送信されます。</b>送信前に必ず確認画面が出ますので、内容をご確認のうえ送信してください。AIを使わない場合でも、オフラインの校正チェックはすべて動作します。<br>
+        <b>APIキーは使いません。</b>お使いのパソコンにインストールされたClaude Code（<code>claude</code> コマンド）を、起動スクリプトが裏側で呼び出します。ログイン済みのClaudeアカウントがそのまま使われます。<br>
+        <b>AI機能を使うと、入力した文章がClaudeに送信されます。</b>送信前に必ず確認画面が出ますので、内容をご確認のうえ送信してください。AIを使わない場合でも、オフラインの校正チェックはすべて動作します。<br>
         外部AIへの送信は、個人情報保護法上の第三者提供・委託に当たる場合があります。ご利用前に、教育委員会・学校の情報セキュリティポリシーおよび生成AI利用規程をご確認ください。
       </div>
       <div class="privacy">
-        <span>✓ APIキーは保存しません</span>
+        <span>✓ APIキー不要・保存もしません</span>
+        <span>✓ 通信は自分のパソコン内だけ（127.0.0.1）</span>
         <span>✓ 送信前に自動で氏名等を伏字化</span>
         <span>✓ 送信内容を全文表示して確認</span>
         <span>✓ 写真は既定で送信しません</span>
@@ -1049,7 +1048,7 @@ const store = {
   f1: [], f2: [], f4: [],      // 読み込んだ文書ファイル {name, text, status}
   photos: [],                   // {name, url, canvas, caption, useAi, faces}
   result: null,                 // {comments, drafts:[{key,label,sub,text,base}], active}
-  apiKey: "",
+  ai: null,                     // 起動スクリプトの状態 {ok, version, ...}
   faceReady: false
 };
 
@@ -1058,9 +1057,18 @@ function toast(msg){
   const t = $("toast"); t.textContent = msg; t.classList.add("on");
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 2600);
 }
-function busy(on, msg){
+let busyTimer = null;
+function busy(on, msg, countUp){
   $("busy").classList.toggle("on", !!on);
   if(msg) $("busymsg").textContent = msg;
+  clearInterval(busyTimer); busyTimer = null;
+  if(on && countUp){
+    const t0 = Date.now(), base = msg || "";
+    busyTimer = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      $("busymsg").textContent = base + "（経過 " + Math.floor(s/60) + "分" + String(s%60).padStart(2,"0") + "秒）";
+    }, 1000);
+  }
 }
 function saveBlob(blob, name){
   const a = document.createElement("a");
@@ -1236,44 +1244,28 @@ function restore(text, map){
 }
 
 /* =========================================================================
-   AI 呼び出し
+   Claude 呼び出し（APIキーは使わず、起動スクリプト経由で claude -p を実行）
    ========================================================================= */
-const API_URL = "https://api.anthropic.com/v1/messages";
-
-async function callClaude(system, contentBlocks, maxTokens){
-  const res = await fetch(API_URL, {
-    method:"POST",
-    headers:{
-      "content-type":"application/json",
-      "x-api-key":store.apiKey,
-      "anthropic-version":"2023-06-01",
-      "anthropic-dangerous-direct-browser-access":"true"
-    },
-    body:JSON.stringify({
-      model:$("model").value,
-      max_tokens:maxTokens || 8000,
-      system:system,
-      messages:[{role:"user", content:contentBlocks}]
-    })
-  });
-  if(!res.ok){
-    let d = "";
-    try{ const j = await res.json(); d = (j.error && j.error.message) || JSON.stringify(j); }catch(e){ d = await res.text(); }
-    if(res.status === 401) throw new Error("APIキーが正しくないようです（401）。");
-    if(res.status === 429) throw new Error("利用量の上限に達しました（429）。しばらく待ってからお試しください。");
-    throw new Error("APIエラー（" + res.status + "）：" + d.slice(0, 300));
-  }
-  const j = await res.json();
-  return (j.content || []).filter(c => c.type === "text").map(c => c.text).join("");
+async function serverHealth(){
+  try{
+    const res = await fetch("./health", {cache:"no-store"});
+    if(!res.ok) return {ok:false, reason:"server"};
+    return await res.json();
+  }catch(e){ return {ok:false, reason:"server"}; }
 }
 
-function parseJson(s){
-  let t = s.trim();
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if(fence) t = fence[1].trim();
-  const a = t.indexOf("{"), b = t.lastIndexOf("}");
-  if(a >= 0 && b > a) t = t.slice(a, b + 1);
-  return JSON.parse(t);
+/* system: 役割指示 ／ prompt: 本文 ／ schema: 期待するJSON構造 ／ images: base64 JPEG の配列 */
+async function runClaude(system, prompt, schema, images){
+  const res = await fetch("./ai", {
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify({system, prompt, schema, images:images || [], model:$("model").value})
+  });
+  let j;
+  try{ j = await res.json(); }
+  catch(e){ throw new Error("起動スクリプトからの応答を読み取れませんでした。"); }
+  if(!j.ok) throw new Error(j.error || "不明なエラーが発生しました。");
+  return j.data;
 }
 
 const SYS_COMMON =
@@ -1285,32 +1277,40 @@ const SYS_COMMON =
 "文中の〔氏名1〕〔電話1〕〔メール1〕〔住所1〕のような角括弧の記号は、個人情報を伏せたプレースホルダです。" +
 "内容を推測せず、必ずそのままの文字列で出力に残してください。\n" +
 "文体は「です・ます」に統一し、生徒を序列化したり過度に称賛したりする表現は避けてください。\n" +
-"出力はJSONのみとし、前後に説明文を付けないでください。";
+"comments の severity は e（要確認）・w（見直し推奨）・i（参考）のいずれか一文字にしてください。\n";
+
+const COMMENT_SCHEMA = {
+  type:"array",
+  items:{type:"object", additionalProperties:false,
+    properties:{
+      severity:{type:"string", enum:["e","w","i"], description:"e=要確認 w=見直し推奨 i=参考"},
+      category:{type:"string"}, title:{type:"string"}, detail:{type:"string"}},
+    required:["severity","category","title","detail"]}
+};
+const SCHEMA_PROOF = {type:"object", additionalProperties:false,
+  properties:{comments:COMMENT_SCHEMA, draftMinimal:{type:"string"}, draftFull:{type:"string"}},
+  required:["comments","draftMinimal","draftFull"]};
+const SCHEMA_COMPOSE = {type:"object", additionalProperties:false,
+  properties:{comments:COMMENT_SCHEMA, draft:{type:"string"}},
+  required:["comments","draft"]};
 
 async function aiProofread(text, ref){
-  const sys = SYS_COMMON + "\n\n出力するJSONの形式：\n" +
-  '{"comments":[{"severity":"e|w|i","category":"分類名","title":"短い見出し","detail":"具体的な指摘と直し方"}],' +
-  '"draftMinimal":"最小限の修正だけを施した全文","draftFull":"読みやすさまで踏み込んで整えた全文"}\n' +
+  const sys = SYS_COMMON + "\n" +
   "draftMinimal は明らかな誤り（誤用・誤字・話し言葉・不適切語・個人名）だけを直し、文の構成や語順は元のまま保ってください。\n" +
   "draftFull は内容を変えずに、構成・語順・段落・文の長さまで整え、学校ホームページの記事として自然な文章にしてください。\n" +
   "comments は重要なものから順に、多くても12件までにしてください。";
   let u = "【校正対象の文章】\n" + text;
   if(ref) u += "\n\n【参考：過去に掲載した文章（この書き方・語調に合わせてください）】\n" + ref.slice(0, 6000);
-  return parseJson(await callClaude(sys, [{type:"text", text:u}], 8000));
+  return await runClaude(sys, u, SCHEMA_PROOF, []);
 }
 
 async function aiCompose(payload, images){
-  const sys = SYS_COMMON + "\n\n出力するJSONの形式：\n" +
-  '{"comments":[{"severity":"e|w|i","category":"分類名","title":"短い見出し","detail":"作成時に注意した点や、教員に確認してほしい点"}],' +
-  '"draft":"記事の全文"}\n' +
+  const sys = SYS_COMMON + "\n" +
   "資料に書かれていない事実（人数・順位・具体的な出来事など）を創作しないでください。分からない部分は書かず、" +
   "確認が必要な点は comments に「◯◯を確認してください」として挙げてください。\n" +
-  "写真が添付されている場合は、写真から読み取れる様子を記事に自然に織り込んでください。" +
+  "写真のファイルパスが示されている場合は、Readツールでその画像を読み、写真から読み取れる様子を記事に自然に織り込んでください。" +
   "ただし写真に写った個人を特定する記述（氏名・容姿の特徴）は書かないでください。";
-  const blocks = [];
-  for(const im of images) blocks.push({type:"image", source:{type:"base64", media_type:"image/jpeg", data:im}});
-  blocks.push({type:"text", text:payload});
-  return parseJson(await callClaude(sys, blocks, 8000));
+  return await runClaude(sys, payload, SCHEMA_COMPOSE, images);
 }
 
 /* =========================================================================
@@ -1640,25 +1640,43 @@ function renderPhotos(){
   });
 }
 
-/* ---------- AI設定 ---------- */
-$("apikey").addEventListener("input", () => {
-  store.apiKey = $("apikey").value.trim();
-  const on = store.apiKey.length > 10;
-  $("aiPill").textContent = on ? "APIキー入力済み" : "未設定・オフラインチェックのみ";
-  $("aiPill").className = "pill " + (on ? "on" : "off");
-});
-$("aiTest").addEventListener("click", async () => {
-  store.apiKey = $("apikey").value.trim();
-  if(!store.apiKey){ $("aiTestMsg").textContent = "APIキーを入力してください。"; return; }
-  $("aiTestMsg").textContent = "確認中…";
-  try{
-    await callClaude("短く答えてください。", [{type:"text", text:"OKとだけ返してください。"}], 16);
-    $("aiTestMsg").innerHTML = '<span style="color:var(--ok); font-weight:600;">接続できました。</span>';
-    $("useAi").checked = true;
-  }catch(e){
-    $("aiTestMsg").innerHTML = '<span style="color:var(--err);">' + esc(e.message) + "</span>";
+/* ---------- AI連携（起動スクリプトの状態確認） ---------- */
+const HELP_START =
+  "AI機能を使うには、ダウンロードした <code>kousei.html</code> と同じフォルダにある " +
+  "<code>kousei-start.mjs</code> を起動し、表示されたアドレス（http://127.0.0.1:8765）を開いてください。<br>" +
+  "起動方法：そのフォルダでコマンドプロンプト（macOSはターミナル）を開き、<code>node kousei-start.mjs</code> と入力します。";
+
+async function checkAi(){
+  const pill = $("aiPill"), st = $("aiStatus");
+  pill.textContent = "確認中…"; pill.className = "pill off";
+  const h = await serverHealth();
+  store.ai = h;
+  if(h.ok && h.claude){
+    pill.textContent = "claude コマンド利用可";
+    pill.className = "pill on";
+    st.innerHTML = '<span style="color:var(--ok); font-weight:600;">✓ 使用できます。</span>' +
+      '　Claude Code ' + esc(h.claude) + " を起動スクリプト経由で呼び出します（APIキーは使いません）。";
+    $("useAi").disabled = false;
+  }else if(h.ok && !h.claude){
+    pill.textContent = "claude コマンドが見つかりません";
+    pill.className = "pill off";
+    st.innerHTML = '<span style="color:var(--err); font-weight:600;">起動スクリプトは動作していますが、claude コマンドが見つかりません。</span><br>' +
+      "Claude Code をインストールし、ターミナルで <code>claude</code> と入力して一度ログインしてからお試しください。" +
+      (h.detail ? "<br><span style='color:var(--muted); font-size:12px;'>" + esc(h.detail) + "</span>" : "");
+    $("useAi").checked = false; $("useAi").disabled = true;
+  }else{
+    pill.textContent = "オフラインチェックのみ";
+    pill.className = "pill off";
+    st.innerHTML = '<span style="color:var(--warn); font-weight:600;">起動スクリプトに接続できません。オフラインの校正チェックのみ使用できます。</span><br>' + HELP_START;
+    $("useAi").checked = false; $("useAi").disabled = true;
   }
+}
+$("aiTest").addEventListener("click", async () => {
+  $("aiTestMsg").textContent = "確認中…";
+  await checkAi();
+  $("aiTestMsg").textContent = store.ai && store.ai.claude ? "" : "接続できませんでした。";
 });
+checkAi();
 
 /* ---------- 入力の取得 ---------- */
 function gatherText(){
@@ -1701,8 +1719,8 @@ async function run(){
     return;
   }
   const useAi = $("useAi").checked;
-  if(useAi && !store.apiKey){
-    toast("AIを使うにはAPIキーを入力してください（上の「AI（Claude）連携の設定」）。");
+  if(useAi && !(store.ai && store.ai.claude)){
+    toast("AIを使うには起動スクリプトから開いてください。");
     $("aiBox").open = true; return;
   }
   $("runMsg").textContent = "";
@@ -1765,7 +1783,7 @@ async function run(){
   const ok = await confirmSend(payload, ps, sendPhotos, ref);
   if(!ok){ $("runMsg").textContent = "AIへの送信は行いませんでした。上のオフライン校正の結果のみ表示しています。"; return; }
 
-  busy(true, "AIが文章を推敲しています…（30秒ほどかかることがあります）");
+  busy(true, "Claudeが文章を作成しています…そのままお待ちください", true);
   try{
     if(MODE === 1){
       const ai = await aiProofread(ps.text, ref ? pseudonymize(ref).text : "");
@@ -1776,10 +1794,10 @@ async function run(){
     }
     store.result.aiUsed = true;
     showResult();
-    toast("AIによる推敲が完了しました。");
+    toast("Claudeによる推敲が完了しました。");
   }catch(e){
     console.error(e);
-    $("runMsg").innerHTML = '<span style="color:var(--err);">AIの処理でエラーが発生しました：' + esc(e.message) +
+    $("runMsg").innerHTML = '<span style="color:var(--err);">Claudeの処理でエラーが発生しました：' + esc(e.message) +
       "</span><br>オフライン校正の結果は上に表示されています。";
   }
   busy(false);
@@ -1832,7 +1850,7 @@ function confirmSend(payload, ps, photos, ref){
       html += '<div style="font-size:12.5px; color:var(--sub); margin-bottom:12px;">写真は送信しません。</div>';
     }
     html += '<div style="font-size:12.5px; color:var(--sub); border-top:1px solid var(--line); padding-top:10px;">' +
-      "送信先：Anthropic社のAPI（api.anthropic.com）／モデル：" + esc($("model").value) + "<br>" +
+      "送信方法：お使いのパソコンの claude コマンド（Claude Code）経由／モデル：" + esc($("model").value) + "<br>" +
       "自動で伏字にした箇所：" + ps.count + " 件（受け取った文章では元の語に自動で戻します）</div>";
     body.innerHTML = html;
 
